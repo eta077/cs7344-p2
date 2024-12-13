@@ -48,7 +48,14 @@ pub struct ClientArgs {
 
 impl ClientArgs {
     pub fn parse() -> Self {
-        ClientArgs { num_players: 100 }
+        let args: Vec<String> = std::env::args().collect();
+        let num_players = args
+            .iter()
+            .position(|arg| matches!(arg.as_str(), "--players"))
+            .and_then(|idx| args.get(idx + 1))
+            .and_then(|arg| arg.parse().ok())
+            .unwrap_or(100);
+        ClientArgs { num_players }
     }
 }
 

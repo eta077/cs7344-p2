@@ -1,0 +1,9 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lib = { path = "../lib" }
+tokio = { version = "1.42.0", features = ["full"] }
+tokio-rustls = "0.26.1"

@@ -7,3 +7,5 @@ TCP (no encryption)
 TCP (with encryption)
 ![image](https://github.com/user-attachments/assets/719f3ca2-15f3-469e-8efd-e2d087e947ee)
 
+UDP
+![image](https://github.com/user-attachments/assets/7d2cc040-2ec9-4485-ba0c-ab511d917ac8)

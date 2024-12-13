@@ -6,6 +6,8 @@ This is a small sample of a 'game' sending many tiny packets over different IP p
 
 ## Results
 
+These results were captured via [samply](https://github.com/mstange/samply). There is little difference between using encryption or not with TCP, but a substantial difference between TCP and UDP.
+
 TCP (no encryption)
 ![image](https://github.com/user-attachments/assets/072de582-6691-45d0-947f-7f7491e2fdb4)
 

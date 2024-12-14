@@ -6,7 +6,7 @@ This is a small sample of a 'game' sending many tiny packets over different IP p
 
 ## Results
 
-These results were captured via [samply](https://github.com/mstange/samply). There is little difference between using encryption or not with TCP, but a substantial difference between TCP and UDP.
+These results were captured via [samply](https://github.com/mstange/samply). There is little difference between using encryption or not with TCP, but a substantial improvement using UDP over TCP. I was surprised to see how much worse the QUIC implementation performed, but that could be because of my usage.
 
 TCP (no encryption)
 ![image](https://github.com/user-attachments/assets/072de582-6691-45d0-947f-7f7491e2fdb4)
@@ -16,6 +16,10 @@ TCP (with encryption)
 
 UDP
 ![image](https://github.com/user-attachments/assets/7d2cc040-2ec9-4485-ba0c-ab511d917ac8)
+
+QUIC
+![image](https://github.com/user-attachments/assets/05df37e8-0633-416f-b956-c0384b817781)
+
 
 ## Environment
 

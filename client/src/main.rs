@@ -1,6 +1,8 @@
 use lib::*;
+use quinn::crypto::rustls::QuicClientConfig;
 use std::collections::HashMap;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
@@ -10,6 +12,8 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 use tokio::time::{sleep, timeout};
 use tokio_rustls::client::TlsStream;
+use tokio_rustls::rustls::client::danger::{ServerCertVerified, ServerCertVerifier};
+use tokio_rustls::rustls::crypto::CryptoProvider;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
 use tokio_rustls::{rustls, TlsConnector};
@@ -18,6 +22,12 @@ use tokio_rustls::{rustls, TlsConnector};
 async fn main() {
     let connection_args = ConnectionArgs::parse();
     let client_args = ClientArgs::parse();
+
+    if connection_args.encrypted {
+        let _ = rustls::crypto::CryptoProvider::install_default(
+            rustls::crypto::ring::default_provider(),
+        );
+    }
 
     let mut tasks = JoinSet::new();
     let mut all_player_maps = HashMap::with_capacity(client_args.num_players as usize);
@@ -56,7 +66,15 @@ async fn main() {
                     join_set.spawn(read_task);
                     join_set.spawn(write_task);
                 }
-                (NetworkProtocol::Quic, _) => todo!(),
+                (NetworkProtocol::Quic, _) => {
+                    let (read_task, write_task) = game_logic(
+                        QuicGameProtocol::connect(player_id).await,
+                        player_id,
+                        players,
+                    );
+                    join_set.spawn(read_task);
+                    join_set.spawn(write_task);
+                }
             }
             join_set.join_all().await;
         });
@@ -342,5 +360,132 @@ impl GameProtocolWriter for UdpProtocolWriter {
         } else {
             std::io::Result::Ok(())
         }
+    }
+}
+
+struct QuicGameProtocol {
+    connection: Arc<quinn::Connection>,
+}
+
+impl GameProtocol for QuicGameProtocol {
+    type R = QuicProtocolReader;
+    type W = QuicProtocolWriter;
+
+    async fn connect(_player_id: u16) -> Self {
+        let mut crypto = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(SkipCertificationVerification::new())
+            .with_no_client_auth();
+        crypto.alpn_protocols = vec![b"h3".to_vec()];
+
+        let client_config =
+            quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto).unwrap()));
+        let zero_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+        let mut endpoint = quinn::Endpoint::client(zero_addr).expect("unable to bind to zero addr");
+        endpoint.set_default_client_config(client_config);
+        let connection = endpoint
+            .connect(QUIC_SERVER_ADDRESS.parse().unwrap(), "localhost")
+            .expect("unable to reach quic server")
+            .await
+            .expect("unable to connect to quic server");
+
+        QuicGameProtocol {
+            connection: Arc::new(connection),
+        }
+    }
+
+    fn reader(&mut self) -> Self::R {
+        QuicProtocolReader {
+            connection: self.connection.clone(),
+        }
+    }
+
+    fn writer(&mut self) -> Self::W {
+        QuicProtocolWriter {
+            connection: self.connection.clone(),
+        }
+    }
+}
+
+struct QuicProtocolReader {
+    connection: Arc<quinn::Connection>,
+}
+
+impl GameProtocolReader for QuicProtocolReader {
+    async fn read(&mut self) -> std::io::Result<[u8; 9]> {
+        let mut stream = self.connection.accept_uni().await?;
+        let mut bytes = [0; 9];
+        if stream.read_exact(&mut bytes).await.is_err() {
+            std::io::Result::Err(std::io::Error::other("could not fill entire player buffer"))
+        } else {
+            std::io::Result::Ok(bytes)
+        }
+    }
+}
+
+struct QuicProtocolWriter {
+    connection: Arc<quinn::Connection>,
+}
+
+impl GameProtocolWriter for QuicProtocolWriter {
+    async fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut send = self.connection.open_uni().await?;
+        send.write_all(bytes).await?;
+        send.finish()?;
+        std::io::Result::Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct SkipCertificationVerification(Arc<CryptoProvider>);
+
+impl SkipCertificationVerification {
+    fn new() -> Arc<Self> {
+        Arc::new(Self(Arc::clone(CryptoProvider::get_default().unwrap())))
+    }
+}
+
+impl ServerCertVerifier for SkipCertificationVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }

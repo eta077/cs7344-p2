@@ -4,7 +4,7 @@ pub const TCP_SERVER_ADDRESS: &str = "127.0.0.1:5123";
 pub const UDP_SERVER_ADDRESS: &str = "127.0.0.1:5124";
 pub const QUIC_SERVER_ADDRESS: &str = "127.0.0.1:5125";
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkProtocol {
     #[default]
     Tcp,
@@ -33,7 +33,10 @@ impl ConnectionArgs {
             })
             .unwrap_or_default();
         let encrypted_arg = String::from("--encrypted");
-        let encrypted = args.contains(&encrypted_arg);
+        let mut encrypted = args.contains(&encrypted_arg);
+        if protocol == NetworkProtocol::Quic {
+            encrypted = true;
+        }
         ConnectionArgs {
             protocol,
             encrypted,
